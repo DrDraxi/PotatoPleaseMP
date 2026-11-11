@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Game-independent networking core: wire format, transports, session, bots. No Unity or game references, so it
+       runs headless under xunit and is referenced by the BepInEx plugin (CoreCLR .NET 6 inside the game). -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>PotatoPleaseMP.Core</AssemblyName>
+    <RootNamespace>PotatoPleaseMP.Core</RootNamespace>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PotatoPleaseMP.Core.Tests" />
+  </ItemGroup>
+
+</Project>

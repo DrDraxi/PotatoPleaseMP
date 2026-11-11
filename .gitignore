@@ -1,0 +1,16 @@
+.tools/
+shots/
+bin/
+obj/
+*.user
+.vs/
+lib/interop/
+
+PPMP-Data/
+dist/*.zip
+
+# private working files (kept on the master branch only)
+docs/
+scripts/
+tools/
+dist/
