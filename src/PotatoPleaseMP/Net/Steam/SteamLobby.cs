@@ -92,12 +92,19 @@ internal static unsafe class SteamLobby
     /// <summary>Client: join a lobby, then connect the session to its owner.</summary>
     public static void JoinLobby(ulong lobby)
     {
-        if (!SteamNative.Alive) return;
+        if (!SteamNative.Alive || State == "joining lobby") return; // a repeated click on the same invite
         var call = SteamAPI_ISteamMatchmaking_JoinLobby(MM, lobby);
         State = "joining lobby";
+        PotatoPleaseMP.UI.MultiplayerPanel.ShowJoin();
         SteamEvents.Await(call, 504, (p, failed) =>
         {
-            if (failed || p == IntPtr.Zero || Marshal.ReadInt32(p, 16) != 1) { State = "lobby join failed"; return; }
+            if (failed || p == IntPtr.Zero || Marshal.ReadInt32(p, 16) != 1)
+            {
+                State = "lobby join failed";
+                Plugin.L.LogWarning($"[steam] joining lobby {lobby} failed (response {(p == IntPtr.Zero ? -1 : Marshal.ReadInt32(p, 16))}).");
+                PotatoPleaseMP.UI.MultiplayerPanel.JoinFailed("COULDN'T JOIN", "The invite has expired, or the lobby is closed or full.");
+                return;
+            }
             Lobby = lobby;
             var owner = SteamAPI_ISteamMatchmaking_GetLobbyOwner(MM, lobby);
             State = $"in lobby, host {owner}";
@@ -111,11 +118,29 @@ internal static unsafe class SteamLobby
     /// <summary>Main loop: register for invites once Steam is up, handle a cold-start +connect_lobby, start pending joins.</summary>
     public static void Update()
     {
+        // Steam events queued by the callbacks (never handled inside a callback). 1251: a peer opened a messages session
+        // with us; Steam holds its messages until we accept, so the host must accept here or a joiner never gets through.
+        while (SteamEvents.Queue.Count > 0)
+        {
+            var (id, a, _, _) = SteamEvents.Queue.Dequeue();
+            if (id == 1251) MpRuntime.OnSessionRequest(a);
+        }
         if (SteamBoot.Mode != SteamMode.Full) return;
         if (!_hooked)
         {
             _hooked = true;
-            SteamEvents.On(333, p => { var lobby = (ulong)Marshal.ReadInt64(p, 0); Plugin.L.LogMessage($"[steam] invite accepted: lobby {lobby}"); _invited = lobby; });
+            SteamEvents.On(333, p =>
+            {
+                var lobby = (ulong)Marshal.ReadInt64(p, 0);
+                Plugin.L.LogMessage($"[steam] invite accepted: lobby {lobby}");
+                _invited = lobby;
+                if (MpRuntime.Active) _tellBusy = true;
+            });
+        }
+        if (_tellBusy)
+        {
+            _tellBusy = false;
+            PotatoPleaseMP.UI.Notice.Show(MpRuntime.IsHost ? "Quit to the menu to join your friend's shift (this closes yours)." : "Quit to the menu to join your friend's shift.", 6f);
         }
         if (!_coldStartChecked)
         {
@@ -141,4 +166,5 @@ internal static unsafe class SteamLobby
     }
 
     static ulong _invited;
+    static bool _tellBusy;
 }

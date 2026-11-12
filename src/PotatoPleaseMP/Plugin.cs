@@ -11,7 +11,7 @@ namespace PotatoPleaseMP;
 public class Plugin : BasePlugin
 {
     public const string Guid = "drdraxi.potatopleasemp";
-    public const string Version = "0.2.2";
+    public const string Version = "0.2.3";
 
     internal static ManualLogSource L = null!;
     internal static Harmony Harmony = null!;

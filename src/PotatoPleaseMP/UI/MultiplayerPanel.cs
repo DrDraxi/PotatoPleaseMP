@@ -26,6 +26,30 @@ internal static class MultiplayerPanel
         Refresh();
     }
 
+    static bool OnMainMenu => UnityEngine.Object.FindObjectOfType<PotatoPeeler.MainMenuController>() != null;
+
+    /// <summary>A join started (Steam invite or Join Game): show its progress in the panel, or as a notice mid-shift.</summary>
+    public static void ShowJoin()
+    {
+        ClearJoinError();
+        if (OnMainMenu) Open();
+        else Notice.Show("Joining your friend's shift...", 6f);
+    }
+
+    /// <summary>A join failed before the host's shift loaded: say why.</summary>
+    public static void JoinFailed(string head, string detail)
+    {
+        _joinError = head;
+        _joinErrorDetail = detail;
+        Plugin.L.LogMessage($"[ui] join failed: {head} - {detail}");
+        if (OnMainMenu) Open();
+        else Notice.Show($"{head}: {detail}", 8f);
+    }
+
+    public static void ClearJoinError() { _joinError = null; _joinErrorDetail = null; }
+
+    static string? _joinError, _joinErrorDetail;
+
     static void Close()
     {
         if (_panel != null) _panel.SetActive(false);
@@ -129,17 +153,29 @@ internal static class MultiplayerPanel
                 _ => c.State.ToString().ToUpperInvariant(),
             };
         else if (MpRuntime.Host != null) _status.text = "HOSTING";
+        else if (Net.Steam.SteamLobby.State == "joining lobby") _status.text = "JOINING YOUR FRIEND...";
+        else if (_joinError != null) _status.text = _joinError;
         else _status.text = "WORK THE PILE TOGETHER";
         if (_hostDetail != null) _hostDetail.text = $"Comrades join your current shift ({Transport}).";
-        if (_joinDetail != null) _joinDetail.text = MpRuntime.TransportMode.Value.Equals("Direct", StringComparison.OrdinalIgnoreCase)
-            ? $"Join the shift at {MpRuntime.HostAddress.Value}." : "Join a friend's shift (Steam invite).";
+        if (_joinDetail != null) _joinDetail.text = MpRuntime.Client == null && MpRuntime.Host == null && !string.IsNullOrEmpty(_joinErrorDetail)
+            ? _joinErrorDetail!
+            : MpRuntime.TransportMode.Value.Equals("Direct", StringComparison.OrdinalIgnoreCase)
+                ? $"Join the shift at {MpRuntime.HostAddress.Value}." : "Join a friend's shift (Steam invite).";
     }
 
     /// <summary>Every frame from the plugin: keep the status line live while the panel is open.</summary>
     public static void Update()
     {
-        if (_panel == null || !_panel.activeInHierarchy || Time.unscaledTime < _nextRefresh) return;
+        if (Time.unscaledTime < _nextRefresh) return;
         _nextRefresh = Time.unscaledTime + 0.25f;
+        // A join that started mid-transition (an invite accepted during a shift, then quit to the menu): bring the panel
+        // up once the menu is there, so the joiner sees the progress.
+        bool joining = (MpRuntime.Client is { } c && c.State < ClientState.Loading) || Net.Steam.SteamLobby.State == "joining lobby";
+        if (!joining) _autoOpened = false;
+        else if (!_autoOpened && (_panel == null || !_panel.activeInHierarchy) && OnMainMenu) { _autoOpened = true; Open(); }
+        if (_panel == null || !_panel.activeInHierarchy) return;
         Refresh();
     }
+
+    static bool _autoOpened;
 }

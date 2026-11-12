@@ -61,6 +61,7 @@ internal static class MpRuntime
     public static object StartHost(string? name = null)
     {
         if (Active) return new { error = "a session is already running" };
+        PotatoPleaseMP.UI.MultiplayerPanel.ClearJoinError();
         ITransport primary;
         if (Direct)
         {
@@ -142,11 +143,52 @@ internal static class MpRuntime
             SteamId = Steam.SteamNative.Alive && !Direct ? Steam.SteamNative.LocalSteamId : 0,
         });
         Client.MessageHandler = OnClientMessage;
+        _clientEnteredWorld = false;
+        PotatoPleaseMP.UI.MultiplayerPanel.ClearJoinError();
         Client.Connect(hostId, Now);
         LastJoinTarget = Direct ? (string.IsNullOrEmpty(target) ? HostAddress.Value : target) : target;
         Plugin.L.LogMessage($"[mp] joining {hostId} over {(Direct ? "direct TCP" : "Steam")}.");
         return new { joining = hostId.ToString() };
     }
+
+    static readonly HashSet<ulong> _ignoredRequests = new();
+
+    /// <summary>
+    /// Steam callback 1251 (a peer sent us the first message of a messages session). Steam holds that peer's messages
+    /// until the session is accepted, and the connection layer only accepts once it has read a Connect, so without this
+    /// the host never sees a joiner and the join times out. The host accepts every request (the session handshake checks
+    /// versions and room); a client accepts only its own host.
+    /// </summary>
+    public static void OnSessionRequest(ulong peer)
+    {
+        if (Host != null || (Client != null && LastJoinTarget == peer.ToString()))
+        {
+            bool ok = Steam.SteamMessages.Accept(peer);
+            Plugin.L.LogMessage($"[steam] session request from {peer}: {(ok ? "accepted" : "accept FAILED")}.");
+            _ignoredRequests.Remove(peer);
+        }
+        else if (_ignoredRequests.Add(peer))
+            Plugin.L.LogMessage($"[steam] session request from {peer} ignored (not hosting).");
+    }
+
+    /// <summary>The player-facing reason a join failed (panel subtitle and detail line).</summary>
+    static (string Head, string Detail) JoinFailure(ClientSession c)
+    {
+        var d = c.EndDetail ?? "";
+        return c.EndReason switch
+        {
+            LeaveReason.Rejected => ("THE HOST REFUSED", string.IsNullOrEmpty(d) ? "Refused by the host." : d),
+            LeaveReason.HostLeft => ("THE HOST LEFT", "Your friend closed the shift."),
+            LeaveReason.LoadFailed => ("COULDN'T LOAD THE SHIFT", string.IsNullOrEmpty(d) ? "The shift failed to load." : d),
+            LeaveReason.HostLost when c.EndDetail?.StartsWith("No answer") == true
+                => ("NO ANSWER FROM THE HOST", "Connected, but the host never answered. Check you both run the same mod version."),
+            LeaveReason.HostLost => ("COULDN'T REACH THE HOST", "Steam found no route to your friend. Make sure they are still hosting, then try again."),
+            LeaveReason.Left => ("JOIN CANCELLED", d),
+            _ => ("THE JOIN FAILED", string.IsNullOrEmpty(d) ? c.EndReason.ToString() : d),
+        };
+    }
+
+    static bool _clientEnteredWorld;
 
     // ---------------- shared ----------------
 
@@ -157,7 +199,8 @@ internal static class MpRuntime
             Host.Shutdown(LeaveReason.HostLeft);
             Host.Update(Now);
         }
-        bool wasClient = Client != null;
+        bool wasClient = Client != null && _clientEnteredWorld; // only a client that loaded the host's world must leave it
+        _clientEnteredWorld = false;
         if (Client != null)
         {
             Client.Leave(LeaveReason.Left);
@@ -273,7 +316,19 @@ internal static class MpRuntime
         if (Client != null && Client.State == ClientState.Playing) Game.BodySync.UpdateClient(); Game.PileSync.UpdateClient(); Game.SackSync.UpdateClient(); Game.StorySync.UpdateClientZone();
         Bots?.Prune();
         P2PTransport.PumpDeferredCloses();
-        if (Client != null && Client.State == ClientState.Ended) { Plugin.L.LogMessage("[mp] session ended."); Stop(); return; }
+        if (Client != null && Client.State is ClientState.Loading or ClientState.Applying or ClientState.Playing or ClientState.Resyncing)
+            _clientEnteredWorld = true;
+        if (Client != null && Client.State == ClientState.Ended)
+        {
+            Plugin.L.LogMessage($"[mp] session ended: {Client.EndReason}{(string.IsNullOrEmpty(Client.EndDetail) ? "" : $" ({Client.EndDetail})")}.");
+            if (!_clientEnteredWorld)
+            {
+                var (head, detail) = JoinFailure(Client);
+                PotatoPleaseMP.UI.MultiplayerPanel.JoinFailed(head, detail);
+            }
+            Stop();
+            return;
+        }
         if (now >= _nextPose) { _nextPose = now + 0.05; SendOwnPose(); }
     }
 

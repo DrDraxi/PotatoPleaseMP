@@ -3,7 +3,7 @@
 A co-op multiplayer mod for [Potato Please](https://store.steampowered.com/app/5266240/). Peel together with friends in one
 shift: over Steam (invites, friends) or a direct IP connection.
 
-Built for **Potato Please 1.0.4** (Steam build 26529021). Mod version **0.2.2**.
+Built for **Potato Please 1.0.4** (Steam build 26529021). Mod version **0.2.3**.
 
 ## What's shared
 
